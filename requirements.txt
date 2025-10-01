@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+twilio
+paho-mqtt
+opencv-python
+ultralytics
+requests
+pyjwt
+passlib[bcrypt]
+python-multipart

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Robotic SOC Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #111; color: #eee; margin: 20px; }
+    h1, h2 { color: #00bfff; }
+    #map { height:400px; border:2px solid #00bfff; margin-top:20px; }
+    .incident { padding: 10px; border-bottom: 1px solid #444; }
+    .LOW { color: #7CFC00; }
+    .MEDIUM { color: #FFD700; }
+    .HIGH { color: #FF8C00; font-weight: bold; }
+    .CRITICAL { color: #FF4500; font-weight: bold; }
+    #incidents { max-height: 300px; overflow-y: auto; border:1px solid #444; margin-bottom:20px; }
+    canvas { background: #222; margin:10px 0; padding:10px; border:1px solid #333; }
+  </style>
+</head>
+<body>
+  <h1>Robotic SOC Live Dashboard</h1>
+
+  <h2>Recent Incidents</h2>
+  <div id="incidents">Loading incidents...</div>
+
+  <h2>Live CCTV Feed</h2>
+  <img src="/video_feed" width="640" height="480" style="border:2px solid #00bfff;">
+
+  <h2>Incident Map</h2>
+  <div id="map"></div>
+
+  <h2>Analytics</h2>
+  <canvas id="incidentChart" width="400" height="200"></canvas>
+  <canvas id="severityChart" width="400" height="200"></canvas>
+
+  <script>
+    // --- WebSocket setup ---
+    const ws = new WebSocket(`ws://${window.location.host}/ws/incidents`);
+    const incidentsDiv = document.getElementById("incidents");
+
+    // --- Map setup ---
+    const map = L.map("map").setView([36.17, -115.14], 14);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19
+    }).addTo(map);
+    const markers = {};
+
+    // --- Chart setup ---
+    const ctx1 = document.getElementById("incidentChart").getContext("2d");
+    const ctx2 = document.getElementById("severityChart").getContext("2d");
+    let incidentCount = 0;
+    let severityCounts = { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
+
+    const incidentChart = new Chart(ctx1, {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "Incidents", data: [], borderColor: "#00bfff" }] },
+      options: { scales: { x: { ticks: { color: "#eee" } }, y: { ticks: { color: "#eee" } } } }
+    });
+
+    const severityChart = new Chart(ctx2, {
+      type: "bar",
+      data: { labels: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+              datasets: [{ label: "Severity Levels", data: [0,0,0,0],
+              backgroundColor: ["#7CFC00","#FFD700","#FF8C00","#FF4500"] }] },
+      options: { plugins: { legend: { labels: { color: "#eee" } } },
+                 scales: { x: { ticks: { color: "#eee" } }, y: { ticks: { color: "#eee" } } } }
+    });
+
+    // --- Load recent incidents ---
+    fetch("/incidents").then(r => r.json()).then(data => {
+      incidentsDiv.innerHTML = "";
+      data.forEach(addIncident);
+    });
+
+    // --- Handle live updates ---
+    ws.onmessage = (event) => {
+      const incident = JSON.parse(event.data);
+      addIncident(incident, true);
+    };
+
+    function addIncident(incident, live=false) {
+      const div = document.createElement("div");
+      div.className = `incident ${incident.severity}`;
+      div.innerHTML = `<b>[${incident.severity}]</b> ${incident.type} from ${incident.source}<br>
+                       <small>${incident.timestamp}</small><br>${incident.details}`;
+      if (live) {
+        incidentsDiv.prepend(div);
+      } else {
+        incidentsDiv.appendChild(div);
+      }
+
+      // Add to map
+      if (incident.latitude && incident.longitude) {
+        if (!markers[incident.id]) {
+          markers[incident.id] = L.marker([incident.latitude, incident.longitude])
+            .addTo(map)
+            .bindPopup(`${incident.type} (${incident.severity})`);
+        }
+      }
+
+      // Update charts
+      incidentCount++;
+      incidentChart.data.labels.push(incidentCount);
+      incidentChart.data.datasets[0].data.push(incidentCount);
+      incidentChart.update();
+
+      severityCounts[incident.severity]++;
+      severityChart.data.datasets[0].data = [
+        severityCounts.LOW, severityCounts.MEDIUM,
+        severityCounts.HIGH, severityCounts.CRITICAL
+      ];
+      severityChart.update();
+    }
+  </script>
+</body>
+</html>
